@@ -124,9 +124,12 @@ function saveConfig() {
 
 let controlWin = null;
 let phoneWin = null;
+let phonePeekMode = false;
+let phonePeekTimer = null;
+let phoneFullBoundsY = null;
 let mdtWin = null;
 let authWin = null;
-const APP_VERSION = '1.2.4';
+const APP_VERSION = '1.2.5';
 
 /** { win, mode, startX, startY, startW, startH } */
 let resizeState = null;
@@ -326,7 +329,14 @@ function createPhoneWindow() {
   });
   phoneWin.on('closed', () => {
     phoneWin = null;
+    phonePeekMode = false;
+    clearPhonePeekTimer();
   });
+
+  phoneWin.on('focus', () => {
+    if (phonePeekMode) phonePeekExpand();
+  });
+
 
   return phoneWin;
 }
@@ -506,6 +516,8 @@ function createMdtWindow() {
 }
 
 function animatePhoneIn(win) {
+  phonePeekMode = false;
+  clearPhonePeekTimer();
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const b = win.getBounds();
   const targetY = Math.min(
@@ -576,9 +588,83 @@ function pushOverlayStatus() {
   }
 }
 
+
+function clearPhonePeekTimer() {
+  if (phonePeekTimer) {
+    clearTimeout(phonePeekTimer);
+    phonePeekTimer = null;
+  }
+}
+
+function animatePhonePeekIn(win) {
+  if (!win || win.isDestroyed()) return;
+  const wa = screen.getPrimaryDisplay().workAreaSize;
+  const b = win.getBounds();
+  // widoczne ~28% wysokości telefonu od dołu
+  const visibleH = Math.max(160, Math.round(b.height * 0.28));
+  const targetY = wa.height - visibleH;
+  const startY = wa.height + 10;
+
+  if (!win.isVisible()) {
+    win.setBounds({ x: b.x, y: startY, width: b.width, height: b.height });
+    try { win.showInactive(); } catch (_) { win.show(); }
+  }
+
+  const duration = 320;
+  const t0 = Date.now();
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const fromY = win.getBounds().y;
+
+  function step() {
+    if (!win || win.isDestroyed()) return;
+    const p = Math.min(1, (Date.now() - t0) / duration);
+    const y = Math.round(fromY + (targetY - fromY) * ease(p));
+    const cur = win.getBounds();
+    win.setBounds({ x: cur.x, y, width: cur.width, height: cur.height });
+    if (p < 1) setTimeout(step, 16);
+  }
+  step();
+}
+
+function phonePeekNotify() {
+  const win = createPhoneWindow();
+  // już w pełni otwarty — nic nie rób (toast i tak w webview)
+  if (win.isVisible() && !phonePeekMode) return;
+
+  phonePeekMode = true;
+  clearPhonePeekTimer();
+  animatePhonePeekIn(win);
+  pushOverlayStatus();
+
+  phonePeekTimer = setTimeout(() => {
+    if (!phonePeekMode) return;
+    phonePeekMode = false;
+    if (phoneWin && !phoneWin.isDestroyed() && phoneWin.isVisible()) {
+      animatePhoneOut(phoneWin).then(pushOverlayStatus).catch(pushOverlayStatus);
+    }
+  }, 4800);
+}
+
+function phonePeekExpand() {
+  if (!phonePeekMode) return;
+  phonePeekMode = false;
+  clearPhonePeekTimer();
+  const win = createPhoneWindow();
+  animatePhoneIn(win);
+  setTimeout(pushOverlayStatus, 450);
+}
+
+
 function togglePhone() {
   const win = createPhoneWindow();
+  if (phonePeekMode) {
+    phonePeekExpand();
+    setTimeout(() => broadcastStatus(true), 50);
+    return;
+  }
   if (win.isVisible()) {
+    phonePeekMode = false;
+    clearPhonePeekTimer();
     animatePhoneOut(win).then(function () { pushOverlayStatus(); }).catch(function () { pushOverlayStatus(); });
   } else {
     animatePhoneIn(win);
@@ -734,6 +820,8 @@ ipcMain.handle('control-get-status', () => {
 });
 
 ipcMain.on('control-toggle-phone', () => togglePhone());
+ipcMain.on('phone-peek-notify', () => { try { phonePeekNotify(); } catch (e) {} });
+ipcMain.on('phone-peek-expand', () => { try { phonePeekExpand(); } catch (e) {} });
 ipcMain.on('control-toggle-mdt', () => toggleMdt());
 ipcMain.on('control-minimize', () => {
   if (controlWin && !controlWin.isDestroyed()) controlWin.minimize();

@@ -25,7 +25,9 @@ contextBridge.exposeInMainWorld('overlay', {
   zoom: (delta) => ipcRenderer.send('set-zoom', delta),
   resizeStart: (payload) => ipcRenderer.send('resize-start', payload),
   resizeMove: (payload) => ipcRenderer.send('resize-move', payload),
-  resizeEnd: () => ipcRenderer.send('resize-end')
+  resizeEnd: () => ipcRenderer.send('resize-end'),
+  phonePeekNotify: () => ipcRenderer.send('phone-peek-notify'),
+  phonePeekExpand: () => ipcRenderer.send('phone-peek-expand')
 });
 
 contextBridge.exposeInMainWorld('control', {

@@ -228,6 +228,16 @@
     setTimeout(inject, 150);
   });
 
+  view.addEventListener('console-message', function (e) {
+    var msg = (e && e.message) ? String(e.message) : '';
+    if (msg.indexOf('__WV_PHONE_NOTIFY__') === 0) {
+      if (window.overlay && window.overlay.phonePeekNotify) window.overlay.phonePeekNotify();
+    } else if (msg.indexOf('__WV_PHONE_EXPAND__') === 0) {
+      if (window.overlay && window.overlay.phonePeekExpand) window.overlay.phonePeekExpand();
+    }
+  });
+
+
   view.addEventListener('new-window', function (e) {
     if (e.url && window.overlay && window.overlay.openAuth) window.overlay.openAuth(e.url);
   });
