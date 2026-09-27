@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Telefon</title>
+<style>
+  /* WAŻNE: html/body MUSZĄ być w pełni przezroczyste —
+     inaczej rogi okna zostają czarne i nie widać zaokrągleń */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+  }
+
+  /*
+    Obudowa — inset od krawędzi okna, żeby rogi okna były przezroczyste.
+    border-radius na tym elemencie = widoczne zaokrąglenie nad grą.
+  */
+  .device {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    right: 12px;   /* miejsce na boczne przyciski */
+    bottom: 4px;
+    border-radius: 30px;
+    background: linear-gradient(
+      155deg,
+      #4a4d56 0%,
+      #2a2c32 18%,
+      #141518 45%,
+      #1c1e24 78%,
+      #32353e 100%
+    );
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 0 0 2px rgba(0, 0, 0, 0.45),
+      0 16px 40px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+    /* przycina cienie wewnętrzne do zaokrągleń */
+    isolation: isolate;
+  }
+
+  /* Cienka wewnętrzna linia metaliczna */
+  .device::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 30px;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 0 0 3px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Ekran — zaokrąglony, treść wypełnia 100% */
+  .screen {
+    position: absolute;
+    inset: 8px;
+    border-radius: 24px;
+    overflow: hidden;
+    background: #000;
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.85),
+      0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
+  /* webview musi mieć ten sam border-radius (Windows często ignoruje parent clip) */
+  webview#view {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: inline-flex;
+    background: transparent;
+    border-radius: 24px;
+  }
+
+
+  /* Samsung punch-hole — nad stroną, nie Dynamic Island */
+  .cam-hole {
+    position: absolute;
+    top: 11px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    z-index: 40;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 38% 32%, #2a3a4e 0%, #0a0e14 42%, #000 72%);
+    box-shadow:
+      0 0 0 1.5px #0c0d10,
+      0 0 0 2.5px rgba(28, 30, 36, 0.95),
+      inset 0 0.5px 1px rgba(90, 140, 200, 0.28),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.6);
+  }
+  .cam-hole::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #1a2840, #05070a 70%);
+    box-shadow: inset 0 0 1px rgba(120, 160, 220, 0.2);
+  }
+
+  /* Niewidoczny drag / resize */
+  .drag-zone {
+    position: absolute;
+    top: 0;
+    left: 16%;
+    right: 16%;
+    height: 26px;
+    z-index: 30;
+    -webkit-app-region: drag;
+    background: transparent;
+  }
+  .resize-r {
+    position: absolute;
+    top: 40px;
+    right: -8px;
+    bottom: 24px;
+    width: 10px;
+    z-index: 30;
+    cursor: ew-resize;
+    -webkit-app-region: no-drag;
+  }
+  .resize-c {
+    position: absolute;
+    right: -6px;
+    bottom: -2px;
+    width: 20px;
+    height: 20px;
+    z-index: 30;
+    cursor: nwse-resize;
+    -webkit-app-region: no-drag;
+  }
+
+  /* Przyciski boczne — w przezroczystej strefie obok device */
+  .btn-side {
+    position: absolute;
+    right: 2px;
+    width: 3px;
+    border-radius: 1px 2px 2px 1px;
+    background: linear-gradient(90deg, #5a5e68, #303238 50%, #1a1b1f);
+    box-shadow:
+      -0.5px 0 0 rgba(255, 255, 255, 0.12),
+      1px 0 2px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    opacity: 0.88;
+  }
+  .btn-vol-up   { top: 20%; height: 32px; }
+  .btn-vol-down { top: 28%; height: 32px; }
+  .btn-power    { top: 40%; height: 46px; width: 3.5px; }
+</style>
+</head>
+<body>
+  <div class="btn-side btn-vol-up"></div>
+  <div class="btn-side btn-vol-down"></div>
+  <div class="btn-side btn-power"></div>
+
+  <div class="device">
+    <div class="drag-zone"></div>
+    <div class="screen">
+      <webview
+        id="view"
+        src="about:blank"
+        allowpopups
+        partition="persist:wv-phone"
+        webpreferences="contextIsolation=yes, nodeIntegration=no, backgroundThrottling=no"
+      ></webview>
+      <div class="cam-hole" aria-hidden="true"></div>
+    </div>
+    <div class="resize-r" id="resizeRight"></div>
+    <div class="resize-c" id="resizeCorner"></div>
+  </div>
+
+<script>
+(function () {
+  var view = document.getElementById('view');
+
+  /* Tylko ukrycie zewnętrznej obudowy ze strony — NIE ruszamy layoutu aplikacji */
+  var css = [
+    'html, body {',
+    '  margin: 0 !important; padding: 0 !important;',
+    '  width: 100% !important; height: 100% !important;',
+    '  overflow: hidden !important;',
+    '  background: #000 !important;',
+    '}',
+    '.page {',
+    '  margin: 0 !important; padding: 0 !important;',
+    '  width: 100% !important; height: 100% !important;',
+    '  max-width: none !important; max-height: none !important;',
+    '  background: transparent !important;',
+    '}',
+    '.page::before, .page::after { display: none !important; }',
+    '.phone, .phone-frame {',
+    '  margin: 0 !important; padding: 0 !important;',
+    '  width: 100% !important; height: 100% !important;',
+    '  max-width: 100% !important; max-height: 100% !important;',
+    '  border: none !important; border-radius: 0 !important;',
+    '  box-shadow: none !important; transform: none !important;',
+    '  animation: none !important;',
+    '}',
+    '.phone .screen, .screen, .phone-screen {',
+    '  width: 100% !important; height: 100% !important;',
+    '  border-radius: 0 !important; border: none !important;',
+    '}',
+    '.side-button, .punch-hole, .phone::before, .phone::after,',
+    '#adminFab, .admin-panel { display: none !important; }'
+  ].join('\n');
+
+  function inject() {
+    try { view.insertCSS(css); } catch (e) {}
+  }
+  view.addEventListener('dom-ready', inject);
+  view.addEventListener('did-finish-load', function () {
+    inject();
+    setTimeout(inject, 150);
+  });
+
+  view.addEventListener('new-window', function (e) {
+    if (e.url && window.overlay && window.overlay.openAuth) window.overlay.openAuth(e.url);
+  });
+  view.addEventListener('will-navigate', function (e) {
+    var url = e.url || '';
+    if (url.indexOf('discord.com/api/oauth') >= 0 || url.indexOf('discord.com/oauth2') >= 0) {
+      try { e.preventDefault(); } catch (err) {}
+      if (window.overlay && window.overlay.openAuth) window.overlay.openAuth(url);
+    }
+  });
+
+  function withOverlayParam(url) {
+    if (!url || url === 'about:blank') return url;
+    try {
+      var u = new URL(url);
+      u.searchParams.set('overlay', '1');
+      return u.toString();
+    } catch (e) {
+      if (url.indexOf('overlay=') >= 0) return url;
+      return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'overlay=1';
+    }
+  }
+
+  if (window.overlay) {
+    window.overlay.onInit(function (data) {
+      if (data && data.url) view.src = withOverlayParam(data.url);
+    });
+    window.overlay.onAuthDone(function () {
+      var s = view.src;
+      view.src = 'about:blank';
+      setTimeout(function () { view.src = s; }, 80);
+    });
+  }
+
+  function bindResize(el, mode) {
+    el.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!window.overlay) return;
+      window.overlay.resizeStart({ mode: mode, screenX: e.screenX, screenY: e.screenY });
+      function move(ev) {
+        window.overlay.resizeMove({ screenX: ev.screenX, screenY: ev.screenY });
+      }
+      function up() {
+        window.removeEventListener('mousemove', move, true);
+        window.removeEventListener('mouseup', up, true);
+        window.overlay.resizeEnd();
+      }
+      window.addEventListener('mousemove', move, true);
+      window.addEventListener('mouseup', up, true);
+    });
+  }
+  bindResize(document.getElementById('resizeRight'), 'right');
+  bindResize(document.getElementById('resizeCorner'), 'corner');
+})();
+</script>
+</body>
+</html>
