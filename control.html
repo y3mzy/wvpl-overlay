@@ -40,7 +40,7 @@
       var(--bg0);
   }
 
-  /* Titlebar */
+  
   .titlebar {
     height: 40px;
     display: flex;
@@ -239,7 +239,7 @@
     border: 1px solid var(--line2);
   }
   .btn-ghost:hover { background: rgba(255,255,255,.08); }
-  /* Aktywny overlay — ten sam akcent co telefon / UI */
+  
   .btn-overlay.active {
     background: linear-gradient(145deg, var(--accent), #4a6aef 45%, var(--accent2));
     color: #fff;
@@ -353,6 +353,79 @@
     background: rgba(255,255,255,.04); border: 1px solid var(--line);
     color: var(--muted);
   }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 4px 0;
+  }
+  .toggle-row .tr-text { flex: 1; min-width: 0; }
+  .toggle-row .tr-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 4px;
+  }
+  .toggle-row .tr-sub {
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--muted, rgba(255,255,255,.5));
+    margin: 0;
+  }
+  .toggle-switch {
+    position: relative;
+    width: 48px;
+    height: 28px;
+    flex-shrink: 0;
+  }
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+  }
+  .toggle-switch .slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,.12);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .2s ease;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  }
+  .toggle-switch .slider::before {
+    content: "";
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    left: 3px;
+    top: 3px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .2s cubic-bezier(.22,.8,.28,1);
+    box-shadow: 0 1px 4px rgba(0,0,0,.35);
+  }
+  .toggle-switch input:checked + .slider {
+    background: linear-gradient(135deg, #5865F2, #7289da);
+  }
+  .toggle-switch input:checked + .slider::before {
+    transform: translateX(20px);
+  }
+  .toggle-switch input:focus-visible + .slider {
+    outline: 2px solid rgba(88,101,242,.55);
+    outline-offset: 2px;
+  }
+  #rpStatus {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--muted, rgba(255,255,255,.45));
+    min-height: 1.2em;
+  }
+  #rpStatus.on { color: #57F287; }
+  #rpStatus.off { color: rgba(255,255,255,.4); }
+
 </style>
 </head>
 <body>
@@ -369,18 +442,18 @@
   <div class="layout">
     <aside class="nav">
       <button type="button" class="nav-item active" data-tab="home"><span class="ico">⌂</span>Start</button>
-      <button type="button" class="nav-item" data-tab="keys"><span class="ico">⌨</span>Skróty</button>
+      <button type="button" class="nav-item" data-tab="keys"><span class="ico">⌨</span>Ustawienia</button>
       <button type="button" class="nav-item" data-tab="help"><span class="ico">?</span>Instrukcja</button>
       <button type="button" class="nav-item" data-tab="about"><span class="ico">✦</span>O aplikacji</button>
       <div class="foot">
         <div class="dev">Developed by <b>y3mzy</b></div>
         <div class="for">for West Valley RP Poland</div>
-        <div class="ver" id="verSide">v1.2.0</div>
+        <div class="ver" id="verSide">v1.2.7</div>
       </div>
     </aside>
 
     <section class="main">
-      <!-- HOME -->
+      
       <div class="panel active" id="tab-home">
         <h1>Panel sterowania</h1>
         <p class="lead">Overlay telefonu i MDT nad grą. To okno jest centrum aplikacji — po zamknięciu telefon i MDT też się wyłączą.</p>
@@ -408,9 +481,9 @@
         </div>
       </div>
 
-      <!-- KEYS -->
+      
       <div class="panel" id="tab-keys">
-        <h1>Skróty klawiszowe</h1>
+        <h1>Ustawienia</h1>
         <p class="lead">Kliknij pole i wciśnij nowy klawisz (np. F1, F3, Insert). Unikaj klawiszy używanych przez grę.</p>
 
         <div class="card">
@@ -434,10 +507,25 @@
           <button type="button" class="btn btn-primary" id="btnSaveKeys">Zapisz skróty</button>
           <button type="button" class="btn btn-ghost" id="btnResetKeys">Przywróć F1 / F2</button>
         </div>
+        <div class="card" style="margin-top:16px;">
+          <h2 style="margin-bottom:6px;">Status na Discord</h2>
+          <p class="muted" style="margin:0 0 14px;font-size:13px;line-height:1.5;">Pokazuje Twoim znajomym, że grasz aktualnie na West Valley RP — z liczbą graczy online i linkiem do serwera. Funkcja jest opcjonalna i możesz ją w każdej chwili wyłączyć.</p>
+          <div class="toggle-row">
+            <div class="tr-text">
+              <div class="tr-title">Pokaż status aktywności</div>
+              <p class="tr-sub">Gdy włączone, Discord wyświetla „Gra w West Valley RP”.</p>
+            </div>
+            <label class="toggle-switch" title="Włącz / wyłącz">
+              <input type="checkbox" id="richPresence" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div id="rpStatus" class="on">Status włączony</div>
+        </div>
         <div class="status" id="keysStatus"><span class="dot" style="opacity:.3"></span><span></span></div>
       </div>
 
-      <!-- HELP -->
+      
       <div class="panel" id="tab-help">
         <h1>Instrukcja</h1>
         <p class="lead">Krótki przewodnik — od uruchomienia do gry.</p>
@@ -451,14 +539,14 @@
         </ol>
       </div>
 
-      <!-- ABOUT -->
+      
       <div class="panel" id="tab-about">
         <div class="about-hero">
           <div class="mark"><img src="wvpl.ico" alt="" onerror="this.parentNode.textContent='WV'"></div>
           <h1>West Valley Overlay</h1>
           <p class="lead" style="margin:0 auto;">Telefon + MDT jako overlay nad grą</p>
           <div class="pill-row">
-            <span class="pill" id="aboutVer">v1.2.4</span>
+            <span class="pill" id="aboutVer">v1.2.7</span>
             <span class="pill">Developed by y3mzy</span>
             <span class="pill">for West Valley RP Poland</span>
             <span class="pill">Electron</span>
@@ -467,7 +555,7 @@
         <div class="card">
           <h2>Wersja</h2>
           <p style="font-size:13px;color:var(--muted);line-height:1.55;">
-            Zainstalowana wersja: <b style="color:var(--text)" id="aboutVerLine">v1.2.4</b>
+            Zainstalowana wersja: <b style="color:var(--text)" id="aboutVerLine">v1.2.7</b>
           </p>
           <div class="update-box" id="updateBox">
             <div class="u-title" id="updateTitle">Sprawdzanie aktualizacji…</div>
@@ -491,7 +579,7 @@
 
 <script>
 (function () {
-  var VERSION = '1.2.4';
+  var VERSION = '1.2.7';
   document.getElementById('verSide').textContent = 'v' + VERSION;
   document.getElementById('aboutVer').textContent = 'v' + VERSION;
 
@@ -530,7 +618,7 @@
     actions.style.display = 'block';
   }
 
-  /* Tabs */
+  
   document.querySelectorAll('.nav-item').forEach(function (btn) {
     btn.addEventListener('click', function () {
       document.querySelectorAll('.nav-item').forEach(function (b) { b.classList.remove('active'); });
@@ -552,6 +640,14 @@
     if (!cfg) return;
     document.getElementById('hotkeyPhone').value = cfg.hotkeyPhone || 'F1';
     document.getElementById('hotkeyMdt').value = cfg.hotkeyMdt || 'F2';
+    var rp = document.getElementById('richPresence');
+    if (rp) rp.checked = cfg.richPresence !== false;
+    var rps = document.getElementById('rpStatus');
+    if (rps) {
+      var on = cfg.richPresence !== false;
+      rps.textContent = on ? 'Status włączony' : 'Status wyłączony';
+      rps.className = on ? 'on' : 'off';
+    }
     document.getElementById('kbdPhone').textContent = cfg.hotkeyPhone || 'F1';
     document.getElementById('kbdMdt').textContent = cfg.hotkeyMdt || 'F2';
     var hp = document.getElementById('helpKbdP');
@@ -563,11 +659,12 @@
   function collectConfig() {
     return {
       hotkeyPhone: document.getElementById('hotkeyPhone').value || 'F1',
-      hotkeyMdt: document.getElementById('hotkeyMdt').value || 'F2'
+      hotkeyMdt: document.getElementById('hotkeyMdt').value || 'F2',
+      richPresence: !!(document.getElementById('richPresence') && document.getElementById('richPresence').checked)
     };
   }
 
-  /* Key capture */
+  
   function bindKeyInput(id) {
     var input = document.getElementById(id);
     input.addEventListener('click', function () {
@@ -639,9 +736,36 @@
     if (s && s.text) document.getElementById('statusText').textContent = s.text;
   });
 
+  
+  var rpEl = document.getElementById('richPresence');
+  if (rpEl) {
+    rpEl.addEventListener('change', function () {
+      if (!window.control) return;
+      var on = !!rpEl.checked;
+      var rps = document.getElementById('rpStatus');
+      if (rps) {
+        rps.textContent = on ? 'Zapisywanie…' : 'Wyłączanie…';
+        rps.className = on ? 'on' : 'off';
+      }
+      window.control.saveConfig(collectConfig()).then(function () {
+        if (rps) {
+          rps.textContent = on ? 'Status włączony' : 'Status wyłączony';
+          rps.className = on ? 'on' : 'off';
+        }
+        setStatus('keysStatus', true, on ? 'Status Discord włączony' : 'Status Discord wyłączony');
+      }).catch(function (e) {
+        if (rps) {
+          rps.textContent = 'Nie udało się zapisać';
+          rps.className = 'off';
+        }
+        setStatus('keysStatus', false, (e && e.message) || 'Błąd');
+      });
+    });
+  }
+
   document.getElementById('btnSaveKeys').onclick = function () {
     window.control.saveConfig(collectConfig()).then(function () {
-      setStatus('keysStatus', true, 'Skróty zapisane i aktywne');
+      setStatus('keysStatus', true, 'Ustawienia zapisane');
       fillForm(collectConfig());
     }).catch(function (e) {
       setStatus('keysStatus', false, (e && e.message) || 'Błąd');

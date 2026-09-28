@@ -1,12 +1,6 @@
-/**
- * West Valley RP — overlay nad grą
- * F1 = telefon (przesuwany, skalowany, animacja od dołu)
- * F2 = MDT (przesuwany, skalowany)
- * Esc = schowaj aktywne okno
- *
- * Discord OAuth: osobne okno BrowserWindow + webview allowpopups
- * (iframe blokował logowanie — stąd BLOCKED_BY_CLIENT / błędy OAuth)
- */
+let DiscordRPC = null;
+try { DiscordRPC = require('discord-rpc'); } catch (_) { DiscordRPC = null; }
+
 const {
   app,
   BrowserWindow,
@@ -14,7 +8,10 @@ const {
   ipcMain,
   screen,
   shell,
-  session
+  session,
+  Tray,
+  Menu,
+  nativeImage
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -22,7 +19,6 @@ const os = require('os');
 const https = require('https');
 const { execFile } = require('child_process');
 
-// Stały katalog danych poza folderem projektu (unika Error 32 na OneDrive/Desktop/lock)
 try {
   const dataDir = path.join(os.homedir(), 'AppData', 'LocalLow', 'WestValleyOverlay');
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -32,12 +28,12 @@ try {
   console.warn('[overlay] userData path:', e.message);
 }
 
-/** Stałe adresy — nieedytowalne z UI */
+const DISCORD_RPC_CLIENT_ID = '1547339675306430604';
 const FIXED_PHONE_URL = 'https://wvpl.y3mzy.dev/';
 const FIXED_MDT_URL = 'https://mdtlapd.y3mzy.dev/';
 
 function getDataDir() {
-  // %USERPROFILE%\AppData\LocalLow\WestValleyOverlay
+  
   return path.join(os.homedir(), 'AppData', 'LocalLow', 'WestValleyOverlay');
 }
 
@@ -79,6 +75,8 @@ let config = {
   mdtHeight: 800,
   hotkeyPhone: 'F1',
   hotkeyMdt: 'F2',
+  richPresence: true,
+  backendUrl: 'https://mdtbackend.y3mzy.dev',
   alwaysOnTop: true,
   phoneBounds: null,
   mdtBounds: null
@@ -93,7 +91,7 @@ function loadConfig() {
   } catch (e) {
     console.warn('[overlay] Brak config — tworzę domyślny w AppData');
   }
-  // URL-e zawsze z kodu (nie z UI / nie nadpisywalne przez usera w panelu)
+  
   config.phoneUrl = FIXED_PHONE_URL;
   config.mdtUrl = FIXED_MDT_URL;
   saveConfig();
@@ -112,6 +110,8 @@ function saveConfig() {
       mdtHeightPercent: config.mdtHeightPercent,
       hotkeyPhone: config.hotkeyPhone || 'F1',
       hotkeyMdt: config.hotkeyMdt || 'F2',
+      richPresence: config.richPresence !== false,
+      backendUrl: config.backendUrl || 'https://mdtbackend.y3mzy.dev',
       alwaysOnTop: true,
       phoneBounds: config.phoneBounds || null,
       mdtBounds: config.mdtBounds || null
@@ -129,9 +129,8 @@ let phonePeekTimer = null;
 let phoneFullBoundsY = null;
 let mdtWin = null;
 let authWin = null;
-const APP_VERSION = '1.2.5';
+const APP_VERSION = '1.2.7';
 
-/** { win, mode, startX, startY, startW, startH } */
 let resizeState = null;
 
 function defaultPhoneBounds() {
@@ -142,7 +141,7 @@ function defaultPhoneBounds() {
     width: w,
     height: h,
     x: Math.round((width - w) / 2),
-    y: height // start off-screen bottom (animacja)
+    y: height 
   };
 }
 
@@ -177,7 +176,6 @@ function persistBounds(kind) {
   saveConfig();
 }
 
-/** Okno OAuth Discord — normalne okno, nie iframe */
 function openAuthWindow(url) {
   if (authWin && !authWin.isDestroyed()) {
     authWin.focus();
@@ -204,8 +202,8 @@ function openAuthWindow(url) {
   authWin.on('closed', () => {
     authWin = null;
   });
-  // Po udanym logowaniu Discord wraca na redirect URI — zamknij okno auth
-  // i odśwież telefon, jeśli sesja jest współdzielona (ten sam partition)
+  
+  
   authWin.webContents.on('did-navigate', (_e, navUrl) => {
     const u = String(navUrl || '');
     const phoneBase = String(config.phoneUrl || '').replace(/\/$/, '');
@@ -214,11 +212,11 @@ function openAuthWindow(url) {
       u.indexOf(phoneBase) === 0 &&
       (u.indexOf('code=') >= 0 || u.indexOf('token') >= 0 || u.indexOf('/api/phone') >= 0 || u.indexOf('auth') >= 0)
     ) {
-      // redirect z powrotem na telefon / backend
+      
       setTimeout(() => {
         if (phoneWin && !phoneWin.isDestroyed()) {
           phoneWin.webContents.send('auth-done');
-          // przeładuj panel telefonu
+          
           phoneWin.webContents.executeJavaScript(
             `var w=document.getElementById('view'); if(w){ var s=w.src; w.src='about:blank'; setTimeout(function(){ w.src=s; }, 50); }`
           ).catch(() => {});
@@ -235,7 +233,7 @@ function attachNavigationHandlers(win) {
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     const u = String(url || '');
-    // Discord OAuth / login — osobne okno z tym samym partition (cookies)
+    
     if (
       u.indexOf('discord.com') >= 0 ||
       u.indexOf('discordapp.com') >= 0 ||
@@ -245,7 +243,7 @@ function attachNavigationHandlers(win) {
       openAuthWindow(u);
       return { action: 'deny' };
     }
-    // inne linki zewnętrzne — domyślna przeglądarka
+    
     if (/^https?:\/\//i.test(u)) {
       shell.openExternal(u);
       return { action: 'deny' };
@@ -253,7 +251,7 @@ function attachNavigationHandlers(win) {
     return { action: 'allow' };
   });
 
-  // Gdy strona robi location = discord (nie popup)
+  
   win.webContents.on('will-navigate', (event, url) => {
     const u = String(url || '');
     if (u.indexOf('discord.com/api/oauth') >= 0 || u.indexOf('discord.com/oauth2') >= 0) {
@@ -303,7 +301,7 @@ function createPhoneWindow() {
 
   phoneWin.setAlwaysOnTop(true, 'screen-saver');
   phoneWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  // Pełna przezroczystość — rogi zaokrąglonej ramki nie są czarne
+  
   phoneWin.setBackgroundColor('#00000000');
   phoneWin.loadFile(asset('phone-shell.html'));
 
@@ -320,7 +318,7 @@ function createPhoneWindow() {
   phoneWin.on('resize', () => persistBounds('phone'));
   phoneWin.on('move', () => {
     if (phoneWin && !phoneWin.isDestroyed() && phoneWin.isVisible()) {
-      // nie zapisuj pozycji podczas animacji startowej
+      
       const b = phoneWin.getBounds();
       if (b.y < screen.getPrimaryDisplay().workAreaSize.height - 40) {
         persistBounds('phone');
@@ -336,7 +334,6 @@ function createPhoneWindow() {
   phoneWin.on('focus', () => {
     if (phonePeekMode) phonePeekExpand();
   });
-
 
   return phoneWin;
 }
@@ -588,7 +585,6 @@ function pushOverlayStatus() {
   }
 }
 
-
 function clearPhonePeekTimer() {
   if (phonePeekTimer) {
     clearTimeout(phonePeekTimer);
@@ -600,7 +596,7 @@ function animatePhonePeekIn(win) {
   if (!win || win.isDestroyed()) return;
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const b = win.getBounds();
-  // widoczne ~28% wysokości telefonu od dołu
+  
   const visibleH = Math.max(160, Math.round(b.height * 0.28));
   const targetY = wa.height - visibleH;
   const startY = wa.height + 10;
@@ -628,7 +624,7 @@ function animatePhonePeekIn(win) {
 
 function phonePeekNotify() {
   const win = createPhoneWindow();
-  // już w pełni otwarty — nic nie rób (toast i tak w webview)
+  
   if (win.isVisible() && !phonePeekMode) return;
 
   phonePeekMode = true;
@@ -653,7 +649,6 @@ function phonePeekExpand() {
   animatePhoneIn(win);
   setTimeout(pushOverlayStatus, 450);
 }
-
 
 function togglePhone() {
   const win = createPhoneWindow();
@@ -772,8 +767,6 @@ ipcMain.on('resize-end', () => {
   resizeState = null;
 });
 
-
-
 ipcMain.handle('control-get-config', () => {
   return {
     phoneUrl: config.phoneUrl,
@@ -790,7 +783,7 @@ ipcMain.handle('control-get-config', () => {
 
 ipcMain.handle('control-save-config', (_e, cfg) => {
   if (!cfg || typeof cfg !== 'object') throw new Error('Brak danych');
-  // URL-e zablokowane — zawsze FIXED_*
+  
   config.phoneUrl = FIXED_PHONE_URL;
   config.mdtUrl = FIXED_MDT_URL;
   if (cfg.phoneWidth) config.phoneWidth = parseInt(cfg.phoneWidth, 10) || config.phoneWidth;
@@ -799,8 +792,14 @@ ipcMain.handle('control-save-config', (_e, cfg) => {
   if (cfg.mdtHeight) config.mdtHeight = parseInt(cfg.mdtHeight, 10) || config.mdtHeight;
   if (cfg.hotkeyPhone) config.hotkeyPhone = String(cfg.hotkeyPhone).trim();
   if (cfg.hotkeyMdt) config.hotkeyMdt = String(cfg.hotkeyMdt).trim();
+  if (cfg.richPresence !== undefined) config.richPresence = !!cfg.richPresence;
+  if (cfg.backendUrl) config.backendUrl = String(cfg.backendUrl).trim().replace(/\/+$/, '');
   saveConfig();
   registerHotkeys();
+  try {
+    stopRichPresence();
+    if (config.richPresence) startRichPresence();
+  } catch (_) {}
   broadcastStatus(true, 'Skróty zapisane · ' + (config.hotkeyPhone || 'F1') + ' / ' + (config.hotkeyMdt || 'F2'));
   return { ok: true };
 });
@@ -834,13 +833,105 @@ ipcMain.on('control-open-releases', () => {
 });
 
 ipcMain.on('control-quit', () => {
-  destroyOverlays();
+  app.isQuitting = true;
+  try { destroyOverlays(); } catch (_) {}
+  try { destroyTray(); } catch (_) {}
   if (controlWin && !controlWin.isDestroyed()) {
-    controlWin.removeAllListeners('closed');
-    controlWin.close();
+    try { controlWin.removeAllListeners('close'); } catch (_) {}
+    try { controlWin.removeAllListeners('closed'); } catch (_) {}
+    try { controlWin.destroy(); } catch (_) {}
+    controlWin = null;
   }
   app.quit();
 });
+
+let rpcClient = null;
+let rpcReady = false;
+let rpcTimer = null;
+
+function getBackendBase() {
+  return String(config.backendUrl || 'https://mdtbackend.y3mzy.dev').replace(/\/+$/, '');
+}
+
+async function fetchOnlinePlayers() {
+  try {
+    const res = await fetch(getBackendBase() + '/api/public/online');
+    if (!res.ok) return 0;
+    const j = await res.json();
+    return Number(j.players) || 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function stopRichPresence() {
+  if (rpcTimer) {
+    clearInterval(rpcTimer);
+    rpcTimer = null;
+  }
+  if (rpcClient) {
+    try { rpcClient.clearActivity().catch(function () {}); } catch (_) {}
+    try { rpcClient.destroy(); } catch (_) {}
+    rpcClient = null;
+    rpcReady = false;
+  }
+}
+
+function startRichPresence() {
+  if (!config.richPresence) {
+    stopRichPresence();
+    return;
+  }
+  if (!DiscordRPC) return;
+  if (rpcClient) {
+    updateRichPresence();
+    return;
+  }
+
+  const clientId = DISCORD_RPC_CLIENT_ID;
+
+  try {
+    rpcClient = new DiscordRPC.Client({ transport: 'ipc' });
+    rpcClient.on('ready', function () {
+      rpcReady = true;
+      updateRichPresence();
+    });
+    rpcClient.login({ clientId: clientId }).catch(function () {
+      rpcClient = null;
+      rpcReady = false;
+    });
+  } catch (_) {
+    rpcClient = null;
+  }
+
+  if (rpcTimer) clearInterval(rpcTimer);
+  rpcTimer = setInterval(function () {
+    updateRichPresence();
+  }, 15000);
+}
+
+async function updateRichPresence() {
+  if (!config.richPresence || !rpcClient || !rpcReady) return;
+  const players = await fetchOnlinePlayers();
+  const details = players > 0
+    ? ('Na serwerze: ' + players + ' graczy')
+    : 'West Valley RP Poland';
+  try {
+    await rpcClient.setActivity({
+      details: details,
+      state: 'discord.gg/wvpl',
+      largeImageKey: 'logo',
+      largeImageText: 'West Valley RP',
+      smallImageKey: 'phone',
+      smallImageText: 'Telefon i MDT',
+      buttons: [
+        { label: 'Dołącz na Discord', url: 'https://discord.gg/wvpl' }
+      ],
+      instance: false,
+      startTimestamp: rpcClient._wvStart || (rpcClient._wvStart = Date.now())
+    });
+  } catch (_) {}
+}
 
 function registerHotkeys() {
   globalShortcut.unregisterAll();
@@ -852,11 +943,8 @@ function registerHotkeys() {
   if (!globalShortcut.register(mdtKey, toggleMdt)) {
     console.warn('[overlay] Hotkey zajęty:', mdtKey);
   }
-  globalShortcut.register('Escape', hideAll);
-  console.log('[overlay] Hotkeys:', phoneKey, mdtKey, 'Esc');
+  console.log('[overlay] Hotkeys:', phoneKey, mdtKey);
 }
-
-/** Główne okno konfiguracji — od niego zależy cały overlay */
 
 const GITHUB_LATEST = 'https://api.github.com/repos/y3mzy/wvpl-overlay/releases/latest';
 const RELEASES_PAGE = 'https://github.com/y3mzy/wvpl-overlay/releases';
@@ -957,6 +1045,94 @@ async function checkForUpdates() {
   return updateInfo;
 }
 
+
+let tray = null;
+
+function buildTrayMenu() {
+  const rpOn = config.richPresence !== false;
+  return Menu.buildFromTemplate([
+    {
+      label: 'Pokaż panel',
+      click: () => {
+        if (controlWin && !controlWin.isDestroyed()) {
+          controlWin.show();
+          controlWin.focus();
+        } else {
+          createControlWindow();
+        }
+      }
+    },
+    {
+      label: 'Telefon',
+      click: () => { try { togglePhone(); } catch (_) {} }
+    },
+    {
+      label: 'MDT',
+      click: () => { try { toggleMdt(); } catch (_) {} }
+    },
+    { type: 'separator' },
+    {
+      label: rpOn ? 'Wyłącz status Discord' : 'Włącz status Discord',
+      click: () => {
+        config.richPresence = !rpOn;
+        try { saveConfig(); } catch (_) {}
+        try {
+          stopRichPresence();
+          if (config.richPresence) startRichPresence();
+        } catch (_) {}
+        try { updateTrayMenu(); } catch (_) {}
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Zamknij Overlay',
+      click: () => {
+        app.isQuitting = true;
+        try { destroyOverlays(); } catch (_) {}
+        try { destroyTray(); } catch (_) {}
+        app.quit();
+      }
+    }
+  ]);
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  try { tray.setContextMenu(buildTrayMenu()); } catch (_) {}
+}
+
+function createTray() {
+  if (tray) return;
+  try {
+    let img = nativeImage.createEmpty();
+    const ico = getIconPath();
+    if (ico && fs.existsSync(ico)) {
+      const loaded = nativeImage.createFromPath(ico);
+      if (loaded && !loaded.isEmpty()) img = loaded.resize({ width: 16, height: 16 });
+    }
+    tray = new Tray(img);
+    tray.setToolTip('West Valley Overlay v' + APP_VERSION);
+    updateTrayMenu();
+    tray.on('click', () => {
+      if (controlWin && !controlWin.isDestroyed()) {
+        controlWin.show();
+        controlWin.focus();
+      } else {
+        createControlWindow();
+      }
+    });
+  } catch (e) {
+    console.warn('[overlay] tray:', e && e.message ? e.message : e);
+  }
+}
+
+function destroyTray() {
+  if (tray) {
+    try { tray.destroy(); } catch (_) {}
+    tray = null;
+  }
+}
+
 function getShortcutFlagPath() {
   return path.join(getDataDir(), 'shortcut-installed.flag');
 }
@@ -964,13 +1140,16 @@ function getShortcutFlagPath() {
 function createWindowsShortcuts() {
   if (process.platform !== 'win32') return;
   try {
-    if (fs.existsSync(getShortcutFlagPath())) return;
+    if (fs.existsSync(getShortcutFlagPath())) {
+      const prev = String(fs.readFileSync(getShortcutFlagPath(), 'utf8') || '').trim();
+      if (prev === APP_VERSION) return;
+    }
   } catch (_) {}
 
   const ico = getIconPath() || '';
   let target = process.execPath;
   let args = '';
-  // Dev: electron . — skrót do electron z cwd projektu
+  
   if (!app.isPackaged) {
     target = process.execPath;
     args = '"' + path.join(__dirname) + '"';
@@ -1040,7 +1219,7 @@ ${String(desktop || "").replace(/'/g, "''")}
           return;
         }
         try {
-          fs.writeFileSync(getShortcutFlagPath(), new Date().toISOString(), 'utf8');
+          fs.writeFileSync(getShortcutFlagPath(), APP_VERSION, 'utf8');
           console.log('[overlay] Skrót Start Menu + Desktop utworzony');
         } catch (_) {}
       }
@@ -1049,7 +1228,6 @@ ${String(desktop || "").replace(/'/g, "''")}
     console.warn('[overlay] shortcut write:', e.message);
   }
 }
-
 
 function createControlWindow() {
   if (controlWin && !controlWin.isDestroyed()) {
@@ -1086,11 +1264,22 @@ function createControlWindow() {
 
   controlWin.loadFile(asset('control.html'));
 
+  controlWin.on('minimize', (e) => {
+    e.preventDefault();
+    try { controlWin.hide(); } catch (_) {}
+  });
+
+  controlWin.on('close', () => {
+    app.isQuitting = true;
+    try { destroyOverlays(); } catch (_) {}
+    try { destroyTray(); } catch (_) {}
+  });
+
   controlWin.on('closed', () => {
     controlWin = null;
-    // Zamknięcie panelu = koniec wszystkiego
-    destroyOverlays();
-    app.quit();
+    if (app.isQuitting) {
+      try { app.quit(); } catch (_) {}
+    }
   });
 
   return controlWin;
@@ -1131,10 +1320,8 @@ function broadcastStatus(ok, text) {
   });
 }
 
-// Wspólna sesja telefonu — cookies Discord OAuth
 function setupSession() {
   const ses = session.fromPartition('persist:wv-phone');
-  // Nie blokuj third-party cookies potrzebnych do OAuth
   try {
     ses.cookies.set({
       url: 'https://discord.com',
@@ -1145,7 +1332,6 @@ function setupSession() {
   } catch (_) {}
 }
 
-// Jedna instancja — przy błędzie locka (kod 32) i tak startujemy
 let gotLock = false;
 try {
   gotLock = app.requestSingleInstanceLock();
@@ -1165,7 +1351,6 @@ if (!gotLock) {
     }
   });
 
-// OAuth i popupy z webview (guest)
 app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
     const u = String(url || '');
@@ -1196,7 +1381,6 @@ app.on('web-contents-created', (_event, contents) => {
 
   contents.on('will-navigate', (event, url) => {
     const u = String(url || '');
-    // Tylko gdy to guest webview / okno telefonu próbuje iść na Discord OAuth
     if (u.indexOf('discord.com/api/oauth') >= 0 || u.indexOf('discord.com/oauth2') >= 0) {
       event.preventDefault();
       openAuthWindow(u);
@@ -1208,8 +1392,10 @@ app.on('web-contents-created', (_event, contents) => {
     loadConfig();
     setupSession();
     createWindowsShortcuts();
+    createTray();
     createControlWindow();
     registerHotkeys();
+    try { startRichPresence(); } catch (_) {}
     checkForUpdates().catch(() => {});
     broadcastStatus(true, 'Gotowy · skróty aktywne');
     console.log('[overlay] v' + APP_VERSION + ' — panel sterowania gotowy');
@@ -1217,8 +1403,10 @@ app.on('web-contents-created', (_event, contents) => {
 }
 
 app.on('will-quit', () => {
+  app.isQuitting = true;
   try { persistBounds('phone'); } catch (_) {}
   try { persistBounds('mdt'); } catch (_) {}
+  try { destroyTray(); } catch (_) {}
   destroyOverlays();
 });
 
