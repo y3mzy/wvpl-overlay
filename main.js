@@ -16,6 +16,7 @@ const {
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
 const https = require('https');
 const { execFile } = require('child_process');
 
@@ -29,8 +30,8 @@ try {
 }
 
 const DISCORD_RPC_CLIENT_ID = '1547339675306430604';
-const FIXED_PHONE_URL = 'https://wvpl.y3mzy.dev/';
-const FIXED_MDT_URL = 'https://mdtlapd.y3mzy.dev/';
+const FIXED_PHONE_URL = 'https://wvpl.y3mzy.dev';
+const FIXED_MDT_URL = 'https://mdt.y3mzy.dev/';
 
 function getDataDir() {
   
@@ -76,6 +77,8 @@ let config = {
   hotkeyPhone: 'F1',
   hotkeyMdt: 'F2',
   richPresence: true,
+  characterInfo: true,
+  characterBounds: null,
   backendUrl: 'https://mdtbackend.y3mzy.dev',
   alwaysOnTop: true,
   phoneBounds: null,
@@ -111,6 +114,8 @@ function saveConfig() {
       hotkeyPhone: config.hotkeyPhone || 'F1',
       hotkeyMdt: config.hotkeyMdt || 'F2',
       richPresence: config.richPresence !== false,
+      characterInfo: config.characterInfo !== false,
+      characterBounds: config.characterBounds || null,
       backendUrl: config.backendUrl || 'https://mdtbackend.y3mzy.dev',
       alwaysOnTop: true,
       phoneBounds: config.phoneBounds || null,
@@ -128,8 +133,11 @@ let phonePeekMode = false;
 let phonePeekTimer = null;
 let phoneFullBoundsY = null;
 let mdtWin = null;
+let charWin = null;
+let lastCharacterPayload = { ok: false };
+let characterPollTimer = null;
 let authWin = null;
-const APP_VERSION = '1.2.7';
+const APP_VERSION = '1.2.9';
 
 let resizeState = null;
 
@@ -513,6 +521,7 @@ function createMdtWindow() {
 }
 
 function animatePhoneIn(win) {
+  try { pollCharacterFromPhone(); } catch (_) {}
   phonePeekMode = false;
   clearPhonePeekTimer();
   const wa = screen.getPrimaryDisplay().workAreaSize;
@@ -662,7 +671,8 @@ function togglePhone() {
     clearPhonePeekTimer();
     animatePhoneOut(win).then(function () { pushOverlayStatus(); }).catch(function () { pushOverlayStatus(); });
   } else {
-    animatePhoneIn(win);
+    try { pollCharacterFromPhone(); } catch (_) {}
+  animatePhoneIn(win);
     setTimeout(pushOverlayStatus, 450);
   }
   setTimeout(() => broadcastStatus(true), 50);
@@ -793,6 +803,10 @@ ipcMain.handle('control-save-config', (_e, cfg) => {
   if (cfg.hotkeyPhone) config.hotkeyPhone = String(cfg.hotkeyPhone).trim();
   if (cfg.hotkeyMdt) config.hotkeyMdt = String(cfg.hotkeyMdt).trim();
   if (cfg.richPresence !== undefined) config.richPresence = !!cfg.richPresence;
+  if (cfg.characterInfo !== undefined) {
+    config.characterInfo = !!cfg.characterInfo;
+    try { setCharacterInfoVisible(config.characterInfo); } catch (_) {}
+  }
   if (cfg.backendUrl) config.backendUrl = String(cfg.backendUrl).trim().replace(/\/+$/, '');
   saveConfig();
   registerHotkeys();
@@ -820,6 +834,29 @@ ipcMain.handle('control-get-status', () => {
 
 ipcMain.on('control-toggle-phone', () => togglePhone());
 ipcMain.on('phone-peek-notify', () => { try { phonePeekNotify(); } catch (e) {} });
+ipcMain.on('character-info-data', (_e, payload) => {
+  if (!payload || typeof payload !== 'object') return;
+  if (payload.ok && payload.data && payload.data.photoUrl && String(payload.data.photoUrl).startsWith('/')) {
+    payload.data.photoUrl = backendBaseUrl() + payload.data.photoUrl;
+  }
+  pushCharacterInfo(payload);
+  if (payload.ok && config.characterInfo !== false) {
+    try {
+      const w = createCharacterWindow();
+      if (w && !w.isDestroyed() && !w.isVisible()) {
+        try { w.showInactive(); } catch (_) { try { w.show(); } catch (__) {} }
+      }
+    } catch (_) {}
+  }
+});
+
+ipcMain.on('character-info-request', () => {
+  if (charWin && !charWin.isDestroyed()) {
+    try { charWin.webContents.send('character-info', lastCharacterPayload); } catch (_) {}
+  }
+  pollCharacterFromPhone().catch(() => {});
+});
+
 ipcMain.on('phone-peek-expand', () => { try { phonePeekExpand(); } catch (e) {} });
 ipcMain.on('control-toggle-mdt', () => toggleMdt());
 ipcMain.on('control-minimize', () => {
@@ -1229,6 +1266,227 @@ ${String(desktop || "").replace(/'/g, "''")}
   }
 }
 
+
+function defaultCharacterBounds() {
+  const wa = screen.getPrimaryDisplay().workArea;
+  return { x: wa.x + 16, y: wa.y + 16, width: 310, height: 110 };
+}
+
+function createCharacterWindow() {
+  if (charWin && !charWin.isDestroyed()) return charWin;
+  const saved = config.characterBounds;
+  const def = defaultCharacterBounds();
+  const bounds = saved && saved.width > 80 ? { ...def, ...saved } : def;
+  charWin = new BrowserWindow({
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    minWidth: 180,
+    minHeight: 72,
+    maxWidth: 420,
+    maxHeight: 180,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    icon: getIconPath(),
+    resizable: false,
+    movable: true,
+    hasShadow: false,
+    thickFrame: false,
+    roundedCorners: true,
+    show: false,
+    focusable: true,
+    webPreferences: {
+      preload: asset('preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+  charWin.setAlwaysOnTop(true, 'screen-saver');
+  charWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  charWin.setBackgroundColor('#00000000');
+  charWin.loadFile(asset('character-info.html'));
+  charWin.webContents.on('did-finish-load', () => {
+    try {
+      charWin.webContents.send('character-info', lastCharacterPayload);
+    } catch (_) {}
+  });
+  charWin.on('move', () => {
+    if (!charWin || charWin.isDestroyed()) return;
+    const b = charWin.getBounds();
+    config.characterBounds = { x: b.x, y: b.y, width: b.width, height: b.height };
+    saveConfig();
+  });
+  charWin.on('closed', () => {
+    charWin = null;
+  });
+  return charWin;
+}
+
+function pushCharacterInfo(payload) {
+  lastCharacterPayload = payload || { ok: false };
+  if (charWin && !charWin.isDestroyed()) {
+    try {
+      charWin.webContents.send('character-info', lastCharacterPayload);
+    } catch (_) {}
+  }
+}
+
+function setCharacterInfoVisible(on) {
+  config.characterInfo = !!on;
+  if (!on) {
+    if (charWin && !charWin.isDestroyed()) {
+      try { charWin.hide(); } catch (_) {}
+    }
+    return;
+  }
+  const w = createCharacterWindow();
+  if (w && !w.isDestroyed()) {
+    try {
+      w.showInactive();
+    } catch (_) {
+      try { w.show(); } catch (__) {}
+    }
+    pushCharacterInfo(lastCharacterPayload);
+  }
+}
+
+async function extractPhoneToken() {
+  if (!phoneWin || phoneWin.isDestroyed()) return null;
+  try {
+    const token = await phoneWin.webContents.executeJavaScript(
+      `(function(){
+        try {
+          var view = document.getElementById('view');
+          if (!view || typeof view.executeJavaScript !== 'function') return Promise.resolve('');
+          return view.executeJavaScript('(function(){ try { return localStorage.getItem("phoneToken") || sessionStorage.getItem("phoneToken") || ""; } catch (e) { return ""; } })()');
+        } catch (e) {
+          return Promise.resolve('');
+        }
+      })()`,
+      true
+    );
+    if (token && typeof token === 'string' && token.length > 8) return token.trim();
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function backendBaseUrl() {
+  const u = String(config.backendUrl || 'https://mdtbackend.y3mzy.dev').replace(/\/+$/, '');
+  return u || 'https://mdtbackend.y3mzy.dev';
+}
+
+function httpGetJson(url, headers) {
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(url);
+      const lib = u.protocol === 'https:' ? https : http;
+      const req = lib.request(
+        {
+          protocol: u.protocol,
+          hostname: u.hostname,
+          port: u.port || (u.protocol === 'https:' ? 443 : 80),
+          path: u.pathname + u.search,
+          method: 'GET',
+          headers: Object.assign(
+            { Accept: 'application/json', 'User-Agent': 'WestValley-Overlay/' + APP_VERSION },
+            headers || {}
+          ),
+          timeout: 12000
+        },
+        (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf8');
+            let data = null;
+            try {
+              data = body ? JSON.parse(body) : null;
+            } catch (_) {
+              data = null;
+            }
+            resolve({ status: res.statusCode || 0, data, body });
+          });
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => {
+        try { req.destroy(); } catch (_) {}
+        reject(new Error('timeout'));
+      });
+      req.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function pollCharacterFromPhone() {
+  if (config.characterInfo === false) return;
+  try {
+    const token = await extractPhoneToken();
+    if (!token) {
+      pushCharacterInfo({ ok: false, err: 'Zaloguj się w telefonie' });
+      return;
+    }
+    const base = backendBaseUrl();
+    const res = await httpGetJson(base + '/api/phone/me', {
+      Authorization: 'Bearer ' + token
+    });
+    if (!res || res.status === 401 || res.status === 403) {
+      pushCharacterInfo({ ok: false, err: 'Sesja wygasła — zaloguj ponownie' });
+      return;
+    }
+    if (!res || res.status < 200 || res.status >= 300 || !res.data) {
+      pushCharacterInfo({
+        ok: false,
+        err: (res && res.data && res.data.error) || ('Błąd serwera ' + (res && res.status))
+      });
+      return;
+    }
+    const d = res.data;
+    if (d.photoUrl && typeof d.photoUrl === 'string' && d.photoUrl.startsWith('/')) {
+      d.photoUrl = base + d.photoUrl;
+    }
+    pushCharacterInfo({ ok: true, data: d });
+    if (config.characterInfo !== false) {
+      const w = createCharacterWindow();
+      if (w && !w.isDestroyed() && !w.isVisible()) {
+        try {
+          w.showInactive();
+        } catch (_) {
+          try {
+            w.show();
+          } catch (__) {}
+        }
+      }
+    }
+  } catch (e) {
+    pushCharacterInfo({
+      ok: false,
+      err: (e && e.message) ? e.message : 'Brak połączenia'
+    });
+  }
+}
+
+function startCharacterPolling() {
+  if (characterPollTimer) return;
+  const tick = () => {
+    pollCharacterFromPhone().catch(() => {});
+  };
+  characterPollTimer = setInterval(tick, 5000);
+  setTimeout(tick, 1200);
+  setTimeout(tick, 3500);
+  setTimeout(tick, 7000);
+}
+
+
 function createControlWindow() {
   if (controlWin && !controlWin.isDestroyed()) {
     controlWin.show();
@@ -1287,7 +1545,7 @@ function createControlWindow() {
 
 function destroyOverlays() {
   try { globalShortcut.unregisterAll(); } catch (_) {}
-  [phoneWin, mdtWin, authWin].forEach((w) => {
+  [phoneWin, mdtWin, authWin, charWin].forEach((w) => {
     try {
       if (w && !w.isDestroyed()) w.destroy();
     } catch (_) {}
@@ -1295,6 +1553,8 @@ function destroyOverlays() {
   phoneWin = null;
   mdtWin = null;
   authWin = null;
+  charWin = null;
+  if (characterPollTimer) { clearInterval(characterPollTimer); characterPollTimer = null; }
 }
 
 function getOverlayFlags() {
@@ -1396,6 +1656,10 @@ app.on('web-contents-created', (_event, contents) => {
     createControlWindow();
     registerHotkeys();
     try { startRichPresence(); } catch (_) {}
+    try {
+      if (config.characterInfo !== false) setCharacterInfoVisible(true);
+      startCharacterPolling();
+    } catch (_) {}
     checkForUpdates().catch(() => {});
     broadcastStatus(true, 'Gotowy · skróty aktywne');
     console.log('[overlay] v' + APP_VERSION + ' — panel sterowania gotowy');

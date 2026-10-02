@@ -27,7 +27,10 @@ contextBridge.exposeInMainWorld('overlay', {
   resizeMove: (payload) => ipcRenderer.send('resize-move', payload),
   resizeEnd: () => ipcRenderer.send('resize-end'),
   phonePeekNotify: () => ipcRenderer.send('phone-peek-notify'),
-  phonePeekExpand: () => ipcRenderer.send('phone-peek-expand')
+  phonePeekExpand: () => ipcRenderer.send('phone-peek-expand'),
+  onCharacterInfo: (cb) => ipcRenderer.on('character-info', (_e, data) => cb(data)),
+  requestCharacterInfo: () => ipcRenderer.send('character-info-request'),
+  reportCharacter: (data) => ipcRenderer.send('character-info-data', data)
 });
 
 contextBridge.exposeInMainWorld('control', {

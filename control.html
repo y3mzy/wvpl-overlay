@@ -425,6 +425,14 @@
   }
   #rpStatus.on { color: #57F287; }
   #rpStatus.off { color: rgba(255,255,255,.4); }
+  #charInfoStatus {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--muted, rgba(255,255,255,.45));
+    min-height: 1.2em;
+  }
+  #charInfoStatus.on { color: #57F287; }
+  #charInfoStatus.off { color: rgba(255,255,255,.4); }
 
 </style>
 </head>
@@ -448,7 +456,7 @@
       <div class="foot">
         <div class="dev">Developed by <b>y3mzy</b></div>
         <div class="for">for West Valley RP Poland</div>
-        <div class="ver" id="verSide">v1.2.7</div>
+        <div class="ver" id="verSide">v1.2.9</div>
       </div>
     </aside>
 
@@ -522,6 +530,23 @@
           </div>
           <div id="rpStatus" class="on">Status włączony</div>
         </div>
+
+        <div class="card" style="margin-top:14px;">
+          <h2 style="margin-bottom:6px;">Informacje o postaci</h2>
+          <p class="hint" style="margin-bottom:12px;">Pokazuje imię, nazwisko i zdjęcie z dowodu oraz status wyroku. Box w lewym górnym rogu — można przesuwać.</p>
+          <div class="toggle-row">
+            <div class="tr-text">
+              <div class="tr-title">Informacje o postaci</div>
+              <div class="tr-sub">Panel z danymi zalogowanej postaci</div>
+            </div>
+            <label class="toggle-switch" title="Włącz / wyłącz">
+              <input type="checkbox" id="characterInfo" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div id="charInfoStatus" class="on">Panel włączony</div>
+        </div>
+
         <div class="status" id="keysStatus"><span class="dot" style="opacity:.3"></span><span></span></div>
       </div>
 
@@ -546,7 +571,7 @@
           <h1>West Valley Overlay</h1>
           <p class="lead" style="margin:0 auto;">Telefon + MDT jako overlay nad grą</p>
           <div class="pill-row">
-            <span class="pill" id="aboutVer">v1.2.7</span>
+            <span class="pill" id="aboutVer">v1.2.9</span>
             <span class="pill">Developed by y3mzy</span>
             <span class="pill">for West Valley RP Poland</span>
             <span class="pill">Electron</span>
@@ -555,7 +580,7 @@
         <div class="card">
           <h2>Wersja</h2>
           <p style="font-size:13px;color:var(--muted);line-height:1.55;">
-            Zainstalowana wersja: <b style="color:var(--text)" id="aboutVerLine">v1.2.7</b>
+            Zainstalowana wersja: <b style="color:var(--text)" id="aboutVerLine">v1.2.9</b>
           </p>
           <div class="update-box" id="updateBox">
             <div class="u-title" id="updateTitle">Sprawdzanie aktualizacji…</div>
@@ -579,7 +604,7 @@
 
 <script>
 (function () {
-  var VERSION = '1.2.7';
+  var VERSION = '1.2.9';
   document.getElementById('verSide').textContent = 'v' + VERSION;
   document.getElementById('aboutVer').textContent = 'v' + VERSION;
 
@@ -642,6 +667,14 @@
     document.getElementById('hotkeyMdt').value = cfg.hotkeyMdt || 'F2';
     var rp = document.getElementById('richPresence');
     if (rp) rp.checked = cfg.richPresence !== false;
+    var ci = document.getElementById('characterInfo');
+    if (ci) ci.checked = cfg.characterInfo !== false;
+    var cis = document.getElementById('charInfoStatus');
+    if (cis) {
+      var onC = cfg.characterInfo !== false;
+      cis.textContent = onC ? 'Panel włączony' : 'Panel wyłączony';
+      cis.className = onC ? 'on' : 'off';
+    }
     var rps = document.getElementById('rpStatus');
     if (rps) {
       var on = cfg.richPresence !== false;
@@ -660,7 +693,8 @@
     return {
       hotkeyPhone: document.getElementById('hotkeyPhone').value || 'F1',
       hotkeyMdt: document.getElementById('hotkeyMdt').value || 'F2',
-      richPresence: !!(document.getElementById('richPresence') && document.getElementById('richPresence').checked)
+      richPresence: !!(document.getElementById('richPresence') && document.getElementById('richPresence').checked),
+      characterInfo: !!(document.getElementById('characterInfo') && document.getElementById('characterInfo').checked)
     };
   }
 
@@ -737,6 +771,33 @@
   });
 
   
+
+  var ciEl = document.getElementById('characterInfo');
+  if (ciEl) {
+    ciEl.addEventListener('change', function () {
+      if (!window.control) return;
+      var on = !!ciEl.checked;
+      var cis = document.getElementById('charInfoStatus');
+      if (cis) {
+        cis.textContent = on ? 'Zapisywanie…' : 'Wyłączanie…';
+        cis.className = on ? 'on' : 'off';
+      }
+      window.control.saveConfig(collectConfig()).then(function () {
+        if (cis) {
+          cis.textContent = on ? 'Panel włączony' : 'Panel wyłączony';
+          cis.className = on ? 'on' : 'off';
+        }
+        setStatus('keysStatus', true, on ? 'Informacje o postaci włączone' : 'Informacje o postaci wyłączone');
+      }).catch(function (e) {
+        if (cis) {
+          cis.textContent = 'Nie udało się zapisać';
+          cis.className = 'off';
+        }
+        setStatus('keysStatus', false, (e && e.message) || 'Błąd');
+      });
+    });
+  }
+
   var rpEl = document.getElementById('richPresence');
   if (rpEl) {
     rpEl.addEventListener('change', function () {

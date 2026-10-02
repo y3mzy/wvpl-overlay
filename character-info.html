@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postać</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    background: transparent;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .box {
+    margin: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px 10px 10px;
+    min-width: 200px;
+    max-width: 320px;
+    border-radius: 16px;
+    background: linear-gradient(145deg, rgba(18,20,28,.92), rgba(10,12,18,.88));
+    border: 1px solid rgba(255,255,255,.1);
+    box-shadow:
+      0 8px 28px rgba(0,0,0,.45),
+      inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    color: #e8eaef;
+    -webkit-app-region: drag;
+    cursor: grab;
+  }
+  .box.serving {
+    border-color: rgba(239,68,68,.45);
+    box-shadow:
+      0 8px 28px rgba(0,0,0,.45),
+      0 0 0 1px rgba(239,68,68,.15),
+      inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .av {
+    width: 48px; height: 48px; border-radius: 12px;
+    overflow: hidden; flex-shrink: 0;
+    background: linear-gradient(145deg, #3b4a6b, #1a2233);
+    border: 1px solid rgba(255,255,255,.12);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px; color: rgba(255,255,255,.7);
+  }
+  .av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .meta { flex: 1; min-width: 0; }
+  .name {
+    font-size: 14px; font-weight: 700; letter-spacing: .01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.25;
+  }
+  .sub {
+    margin-top: 3px; font-size: 11px; color: rgba(255,255,255,.45);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .badge {
+    display: none;
+    margin-top: 6px;
+    align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase;
+    color: #fecaca;
+    background: rgba(185,28,28,.35);
+    border: 1px solid rgba(248,113,113,.35);
+    padding: 4px 8px; border-radius: 8px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .badge.show { display: inline-flex; }
+  .badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #f87171;
+    box-shadow: 0 0 8px rgba(248,113,113,.8);
+    flex-shrink: 0;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .45; }
+  }
+  .empty .name { color: rgba(255,255,255,.55); font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="box empty" id="box">
+    <div class="av" id="av">?</div>
+    <div class="meta">
+      <div class="name" id="name">Brak postaci</div>
+      <div class="sub" id="sub">Zaloguj się w telefonie</div>
+      <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">Odsiaduje wyrok</span></div>
+    </div>
+  </div>
+<script>
+(function () {
+  function initials(n) {
+    var p = String(n || '').trim().split(/\s+/).filter(Boolean);
+    if (!p.length) return '?';
+    if (p.length === 1) return p[0].slice(0, 2).toUpperCase();
+    return (p[0][0] + p[p.length - 1][0]).toUpperCase();
+  }
+  function formatLeft(ms) {
+    if (ms == null || ms < 0) ms = 0;
+    var sec = Math.ceil(ms / 1000);
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    if (m >= 60) {
+      var h = Math.floor(m / 60);
+      m = m % 60;
+      return h + 'h ' + m + ' min';
+    }
+    if (m <= 0) return s + ' s';
+    return m + ' min';
+  }
+  var endsAt = null;
+  var timer = null;
+  function tickSentence() {
+    var badge = document.getElementById('badge');
+    var badgeText = document.getElementById('badgeText');
+    var box = document.getElementById('box');
+    if (!endsAt) {
+      badge.classList.remove('show');
+      box.classList.remove('serving');
+      return;
+    }
+    var left = Math.max(0, endsAt - Date.now());
+    badge.classList.add('show');
+    box.classList.add('serving');
+    if (left <= 0) {
+      badgeText.textContent = 'Wyrok zakończony';
+      return;
+    }
+    badgeText.textContent = 'Wyrok · ' + formatLeft(left);
+  }
+  function apply(data) {
+    var box = document.getElementById('box');
+    var av = document.getElementById('av');
+    var nameEl = document.getElementById('name');
+    var sub = document.getElementById('sub');
+    if (!data || !data.ok) {
+      box.classList.add('empty');
+      box.classList.remove('serving');
+      nameEl.textContent = 'Brak postaci';
+      sub.textContent = (data && data.err) ? String(data.err) : 'Zaloguj się w telefonie';
+      av.textContent = '?';
+      av.querySelector('img') && av.querySelector('img').remove();
+      endsAt = null;
+      tickSentence();
+      return;
+    }
+    var d = data.data || data;
+    var display = d.citizenName || d.globalName || d.username || 'Gracz';
+    var photo = d.photoUrl || d.avatar || '';
+    box.classList.remove('empty');
+    nameEl.textContent = display;
+    sub.textContent = d.hasCharacter ? 'West Valley RP' : (d.username ? '@' + d.username : 'Brak dowodu');
+    if (photo) {
+      av.innerHTML = '<img src="' + String(photo).replace(/"/g, '') + '" alt="">';
+      var img = av.querySelector('img');
+      if (img) img.onerror = function () { av.textContent = initials(display); };
+    } else {
+      av.textContent = initials(display);
+    }
+    var sen = d.activeSentence;
+    if (sen && sen.active && sen.endsAt) {
+      endsAt = new Date(sen.endsAt).getTime();
+    } else if (sen && sen.active && sen.remainingMs != null) {
+      endsAt = Date.now() + Number(sen.remainingMs);
+    } else {
+      endsAt = null;
+    }
+    tickSentence();
+  }
+  if (timer) clearInterval(timer);
+  timer = setInterval(tickSentence, 1000);
+  if (window.overlay && window.overlay.onCharacterInfo) {
+    window.overlay.onCharacterInfo(apply);
+  }
+  if (window.overlay && window.overlay.requestCharacterInfo) {
+    window.overlay.requestCharacterInfo();
+  }
+})();
+</script>
+</body>
+</html>

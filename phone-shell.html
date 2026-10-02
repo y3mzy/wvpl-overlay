@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <title>Telefon</title>
 <style>
-  /* WAŻNE: html/body MUSZĄ być w pełni przezroczyste —
-     inaczej rogi okna zostają czarne i nie widać zaokrągleń */
+  
   html, body {
     margin: 0;
     padding: 0;
@@ -15,15 +14,12 @@
     background: transparent !important;
   }
 
-  /*
-    Obudowa — inset od krawędzi okna, żeby rogi okna były przezroczyste.
-    border-radius na tym elemencie = widoczne zaokrąglenie nad grą.
-  */
+  
   .device {
     position: absolute;
     top: 4px;
     left: 4px;
-    right: 12px;   /* miejsce na boczne przyciski */
+    right: 12px;   
     bottom: 4px;
     border-radius: 30px;
     background: linear-gradient(
@@ -40,11 +36,11 @@
       0 16px 40px rgba(0, 0, 0, 0.55),
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
       inset 0 -1px 0 rgba(0, 0, 0, 0.35);
-    /* przycina cienie wewnętrzne do zaokrągleń */
+    
     isolation: isolate;
   }
 
-  /* Cienka wewnętrzna linia metaliczna */
+  
   .device::after {
     content: '';
     position: absolute;
@@ -56,7 +52,7 @@
       inset 0 0 0 3px rgba(0, 0, 0, 0.35);
   }
 
-  /* Ekran — zaokrąglony, treść wypełnia 100% */
+  
   .screen {
     position: absolute;
     inset: 8px;
@@ -68,7 +64,7 @@
       0 0 0 1px rgba(255, 255, 255, 0.03);
   }
 
-  /* webview musi mieć ten sam border-radius (Windows często ignoruje parent clip) */
+  
   webview#view {
     position: absolute;
     inset: 0;
@@ -80,8 +76,7 @@
     border-radius: 24px;
   }
 
-
-  /* Samsung punch-hole — nad stroną, nie Dynamic Island */
+  
   .cam-hole {
     position: absolute;
     top: 11px;
@@ -113,7 +108,7 @@
     box-shadow: inset 0 0 1px rgba(120, 160, 220, 0.2);
   }
 
-  /* Niewidoczny drag / resize */
+  
   .drag-zone {
     position: absolute;
     top: 0;
@@ -145,7 +140,7 @@
     -webkit-app-region: no-drag;
   }
 
-  /* Przyciski boczne — w przezroczystej strefie obok device */
+  
   .btn-side {
     position: absolute;
     right: 2px;
@@ -188,7 +183,7 @@
 (function () {
   var view = document.getElementById('view');
 
-  /* Tylko ukrycie zewnętrznej obudowy ze strony — NIE ruszamy layoutu aplikacji */
+  
   var css = [
     'html, body {',
     '  margin: 0 !important; padding: 0 !important;',
@@ -236,7 +231,6 @@
       if (window.overlay && window.overlay.phonePeekExpand) window.overlay.phonePeekExpand();
     }
   });
-
 
   view.addEventListener('new-window', function (e) {
     if (e.url && window.overlay && window.overlay.openAuth) window.overlay.openAuth(e.url);
@@ -292,6 +286,45 @@
   }
   bindResize(document.getElementById('resizeRight'), 'right');
   bindResize(document.getElementById('resizeCorner'), 'corner');
+
+  var charPollBusy = false;
+  function pollCharacterInfo() {
+    if (charPollBusy) return;
+    var view = document.getElementById('view');
+    if (!view || typeof view.executeJavaScript !== 'function') return;
+    charPollBusy = true;
+    view.executeJavaScript(`(async function(){
+      try {
+        var t = '';
+        try { t = localStorage.getItem('phoneToken') || sessionStorage.getItem('phoneToken') || ''; } catch (e) {}
+        if (!t) return { ok: false, err: 'Zaloguj się w telefonie' };
+        var base = (typeof window.PHONE_API_BASE === 'string' && window.PHONE_API_BASE)
+          ? String(window.PHONE_API_BASE).replace(/\\/+$/, '')
+          : 'https://mdtbackend.y3mzy.dev';
+        var r = await fetch(base + '/api/phone/me', {
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + t }
+        });
+        var d = null;
+        try { d = await r.json(); } catch (e) { d = null; }
+        if (!r.ok) return { ok: false, err: (d && d.error) ? d.error : ('HTTP ' + r.status) };
+        return { ok: true, data: d };
+      } catch (e) {
+        return { ok: false, err: (e && e.message) ? e.message : 'Błąd' };
+      }
+    })()`).then(function (data) {
+      charPollBusy = false;
+      if (window.overlay && window.overlay.reportCharacter) {
+        window.overlay.reportCharacter(data || { ok: false });
+      }
+    }).catch(function () {
+      charPollBusy = false;
+    });
+  }
+  setInterval(pollCharacterInfo, 4000);
+  setTimeout(pollCharacterInfo, 1500);
+  setTimeout(pollCharacterInfo, 4000);
+  setTimeout(pollCharacterInfo, 8000);
+
 })();
 </script>
 </body>
